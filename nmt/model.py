@@ -18,10 +18,11 @@ from __future__ import division
 from __future__ import print_function
 
 import abc
-
+import pdb
 import tensorflow as tf
 
 from tensorflow.python.layers import core as layers_core
+from .utils.device_utils import get_available_gpus
 
 from . import model_helper
 from .utils import iterator_utils
@@ -62,6 +63,7 @@ class BaseModel(object):
           extra_args: model_helper.ExtraArgs, for passing customizable functions.
 
         """
+
         assert isinstance(iterator, iterator_utils.BatchedInput)
         self.iterator = iterator
         self.mode = mode
@@ -70,6 +72,7 @@ class BaseModel(object):
 
         self.src_vocab_size = hparams.src_vocab_size
         self.tgt_vocab_size = hparams.tgt_vocab_size
+
         self.num_gpus = hparams.num_gpus
         self.time_major = hparams.time_major
 
@@ -98,20 +101,18 @@ class BaseModel(object):
             hparams.init_op, hparams.random_seed, hparams.init_weight)
         tf.get_variable_scope().set_initializer(initializer)
 
-        # Embeddings
-        self.init_embeddings(hparams, scope)
         self.batch_size = tf.size(self.iterator.source_sequence_length)
 
-        # Projection
-        with tf.variable_scope(scope or "build_network"):
-            with tf.variable_scope("decoder/output_projection"):
-                self.output_layer = layers_core.Dense(
-                    hparams.tgt_vocab_size,
-                    use_bias=False,
-                    name="output_projection")
-
-        ## Train graph
-        res = self.build_graph(hparams, scope=scope)
+        # Build the train graph.
+        res = self._build(
+            hparams=hparams,
+            source=iterator.source,
+            source_sequence_length=iterator.source_sequence_length,
+            target=iterator.target_input,
+            target_sequence_length=iterator.target_sequence_length,
+            scope=scope)
+        # res = self.__make_parallel(
+        #     self._build, get_available_gpus(), hparams=hparams, scope=scope)
 
         if self.mode == tf.contrib.learn.ModeKeys.TRAIN:
             self.train_loss = res[1]
@@ -150,10 +151,19 @@ class BaseModel(object):
                 opt = tf.train.AdamOptimizer(self.learning_rate)
 
             # Gradients
+            """NOTE
+            When using data parallelism, gradient ops must be forced to
+            place to the same device where their corresponding forward ops
+            are placed.
+            """
+            colocate_gradients_with_ops = (True
+                                           if hparams.data_parallelism > 1 else
+                                           hparams.colocate_gradients_with_ops)
             gradients = tf.gradients(
                 self.train_loss,
                 params,
-                colocate_gradients_with_ops=hparams.colocate_gradients_with_ops)
+                colocate_gradients_with_ops=colocate_gradients_with_ops,
+            )
 
             clipped_grads, grad_norm_summary, grad_norm = model_helper.gradient_clip(
                 gradients, max_gradient_norm=hparams.max_gradient_norm)
@@ -181,6 +191,30 @@ class BaseModel(object):
             utils.print_out("  %s, %s, %s" %
                             (param.name, str(param.get_shape()),
                              param.op.device))
+
+    def _build(self, hparams, source, source_sequence_length, target,
+               target_sequence_length, scope):
+        """Build the entire training graph.
+        """
+        # Embeddings
+        self.init_embeddings(hparams, scope)
+
+        # The pre-softmax projection.
+        with tf.variable_scope(scope or "build_network"):
+            with tf.variable_scope("decoder/output_projection"):
+                self.output_layer = layers_core.Dense(
+                    hparams.tgt_vocab_size,
+                    use_bias=False,
+                    name="output_projection")
+
+        ## Train graph
+        return self.build_graph(
+            hparams=hparams,
+            source=source,
+            source_sequence_length=source_sequence_length,
+            target=target,
+            target_sequence_length=target_sequence_length,
+            scope=scope)
 
     def _get_learning_rate_warmup(self, hparams):
         """Get learning rate warmup."""
@@ -272,13 +306,45 @@ class BaseModel(object):
         assert self.mode == tf.contrib.learn.ModeKeys.EVAL
         return sess.run([self.eval_loss, self.predict_count, self.batch_size])
 
-    def build_graph(self, hparams, scope=None):
+    def __make_parallel(self, fn, num_gpus, **kwargs):
+        """ Wrapper for data parallelism.
+        Args:
+          fn:
+
+        Returns:
+          The loss.
+        """
+
+        in_splits = {}
+        for k, v in kwargs.items():
+            in_splits[k] = tf.split(v, num_gpus)
+
+        out_splits = []
+        for i in range(num_gpus):
+            with tf.device(tf.DeviceSpec(device_type="GPU", device_index=i)):
+                with tf.variable_scope(
+                        tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
+                    out_i = fn(**{k: v[i] for k, v in in_splits.items()})
+                    out_split.append(out_i)
+
+        return tf.reduce_sum(tf.add_n(out_split)) / tf.to_float(self.batch_size)
+
+    def build_graph(self,
+                    hparams,
+                    source,
+                    source_sequence_length,
+                    target,
+                    target_sequence_length,
+                    scope=None):
         """Subclass must implement this method.
 
         Creates a sequence-to-sequence model with dynamic RNN decoder API.
         Args:
           hparams: Hyperparameter configurations.
           scope: VariableScope for the created subgraph; default "dynamic_seq2seq".
+          source: Source sequence index returned by Data Iterator.
+          source_sequence_length: The length of source sequence index. This is
+                                  returned by Data Iterator.
 
         Returns:
           A tuple of the form (logits, loss, final_context_state),
@@ -292,16 +358,19 @@ class BaseModel(object):
             attention_option is not (luong | scaled_luong |
             bahdanau | normed_bahdanau).
         """
+
         utils.print_out("# creating %s graph ..." % self.mode)
         dtype = tf.float32
 
         with tf.variable_scope(scope or "dynamic_seq2seq", dtype=dtype):
             # Encoder
-            encoder_outputs, encoder_state = self._build_encoder(hparams)
+            encoder_outputs, encoder_state = self._build_encoder(
+                hparams, source, source_sequence_length)
 
             ## Decoder
             logits, sample_id, final_context_state = self._build_decoder(
-                encoder_outputs, encoder_state, hparams)
+                encoder_outputs, encoder_state, hparams, source_sequence_length,
+                target, target_sequence_length)
 
             ## Loss
             if self.mode != tf.contrib.learn.ModeKeys.INFER:
@@ -315,13 +384,16 @@ class BaseModel(object):
             return logits, loss, final_context_state, sample_id
 
     @abc.abstractmethod
-    def _build_encoder(self, hparams):
+    def _build_encoder(self, hparams, source, source_sequence_length):
         """Subclass must implement this.
 
         Build and run an RNN encoder.
 
         Args:
           hparams: Hyperparameters configurations.
+          source: Source sequence index returned by Data Iterator.
+          source_sequence_length: The length of source sequence index. This is
+                                  returned by Data Iterator.
 
         Returns:
           A tuple of encoder_outputs and encoder_state.
@@ -362,7 +434,9 @@ class BaseModel(object):
                     tf.to_float(max_encoder_length) * decoding_length_factor))
         return maximum_iterations
 
-    def _build_decoder(self, encoder_outputs, encoder_state, hparams):
+    def _build_decoder(self, encoder_outputs, encoder_state, hparams,
+                       source_sequence_length, target_input,
+                       target_sequence_length):
         """Build and run a RNN decoder with a final projection layer.
 
         Args:
@@ -378,22 +452,19 @@ class BaseModel(object):
             self.tgt_vocab_table.lookup(tf.constant(hparams.sos)), tf.int32)
         tgt_eos_id = tf.cast(
             self.tgt_vocab_table.lookup(tf.constant(hparams.eos)), tf.int32)
-        iterator = self.iterator
 
         # maximum_iteration: The maximum decoding steps.
         maximum_iterations = self._get_infer_maximum_iterations(
-            hparams, iterator.source_sequence_length)
+            hparams, source_sequence_length)
 
         ## Decoder.
         with tf.variable_scope("decoder") as decoder_scope:
             cell, decoder_initial_state = self._build_decoder_cell(
-                hparams, encoder_outputs, encoder_state,
-                iterator.source_sequence_length)
+                hparams, encoder_outputs, encoder_state, source_sequence_length)
 
             ## Train or eval
             if self.mode != tf.contrib.learn.ModeKeys.INFER:
                 # decoder_emp_inp: [max_time, batch_size, num_units]
-                target_input = iterator.target_input
                 if self.time_major:
                     target_input = tf.transpose(target_input)
                 decoder_emb_inp = tf.nn.embedding_lookup(
@@ -402,7 +473,7 @@ class BaseModel(object):
                 # Helper
                 helper = tf.contrib.seq2seq.TrainingHelper(
                     decoder_emb_inp,
-                    iterator.target_sequence_length,
+                    target_sequence_length,
                     time_major=self.time_major)
 
                 # Decoder
@@ -543,6 +614,7 @@ class BaseModel(object):
           A tuple consiting of outputs, infer_summary.
             outputs: of size [batch_size, time]
         """
+
         _, infer_summary, _, sample_words = self.infer(sess)
 
         # make sure outputs is of shape [batch_size, time] or [beam_width,
@@ -562,13 +634,11 @@ class Model(BaseModel):
     and a multi-layer recurrent neural network decoder.
     """
 
-    def _build_encoder(self, hparams):
+    def _build_encoder(self, hparams, source, source_sequence_length):
         """Build an encoder."""
         num_layers = self.num_encoder_layers
         num_residual_layers = self.num_encoder_residual_layers
-        iterator = self.iterator
 
-        source = iterator.source
         if self.time_major:
             source = tf.transpose(source)
 
@@ -589,7 +659,7 @@ class Model(BaseModel):
                     cell,
                     encoder_emb_inp,
                     dtype=dtype,
-                    sequence_length=iterator.source_sequence_length,
+                    sequence_length=source_sequence_length,
                     time_major=self.time_major,
                     swap_memory=True)
             elif hparams.encoder_type == "bi":
@@ -602,7 +672,7 @@ class Model(BaseModel):
                 encoder_outputs, bi_encoder_state = (
                     self._build_bidirectional_rnn(
                         inputs=encoder_emb_inp,
-                        sequence_length=iterator.source_sequence_length,
+                        sequence_length=source_sequence_length,
                         dtype=dtype,
                         hparams=hparams,
                         num_bi_layers=num_bi_layers,

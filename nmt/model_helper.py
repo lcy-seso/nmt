@@ -106,7 +106,8 @@ def create_train_model(model_creator,
             tgt_max_len=hparams.tgt_max_len,
             skip_count=skip_count_placeholder,
             num_shards=num_workers,
-            shard_index=jobid)
+            shard_index=jobid,
+            shuffle_train_data=hparams.shuffle_train_data)
 
         # Note: One can set model_device_fn to
         # `tf.train.replica_device_setter(ps_tasks)` for distributed training.
@@ -273,9 +274,7 @@ def _create_or_load_embed(embed_name, vocab_file, embed_file, vocab_size,
     if vocab_file and embed_file:
         embedding = _create_pretrained_emb_from_txt(vocab_file, embed_file)
     else:
-        with tf.device(_get_embed_device(vocab_size)):
-            embedding = tf.get_variable(embed_name, [vocab_size, embed_size],
-                                        dtype)
+        embedding = tf.get_variable(embed_name, [vocab_size, embed_size], dtype)
     return embedding
 
 

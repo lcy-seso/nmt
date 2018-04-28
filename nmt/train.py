@@ -460,10 +460,12 @@ def train(hparams, scope=None, target_session=""):
         os.path.join(out_dir, "translate.ckpt"),
         global_step=global_step)
 
-    (result_summary, _, final_eval_metrics) = (run_full_eval(
-        model_dir, infer_model, infer_sess, eval_model, eval_sess, hparams,
-        summary_writer, sample_src_data, sample_tgt_data, avg_ckpts))
-    print_step_info("# Final, ", global_step, info, result_summary, log_f)
+    # SKIP this eval.
+    # (result_summary, _, final_eval_metrics) = (run_full_eval(
+    #     model_dir, infer_model, infer_sess, eval_model, eval_sess, hparams,
+    #     summary_writer, sample_src_data, sample_tgt_data, avg_ckpts))
+    # print_step_info("# Final, ", global_step, info, result_summary, log_f)
+
     utils.print_time("# Done training!", start_train_time)
 
     summary_writer.close()
@@ -491,6 +493,7 @@ def train(hparams, scope=None, target_session=""):
                             info, result_summary, log_f)
             summary_writer.close()
 
+    final_eval_metrics = None
     return final_eval_metrics, global_step
 
 

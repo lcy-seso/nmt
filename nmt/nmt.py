@@ -14,7 +14,6 @@
 # ==============================================================================
 """TensorFlow NMT model implementation."""
 from __future__ import print_function
-
 import argparse
 import os
 import random
@@ -474,6 +473,18 @@ def add_arguments(parser):
         default=0,
         help="number of intra_op_parallelism_threads")
 
+    parser.add_argument(
+        "--shuffle_train_data",
+        type=int,
+        default=1,
+        help="Whether to shuffle the training data. This flag is for debug.")
+
+    parser.add_argument(
+        "--data_parallelism",
+        type=int,
+        default=1,
+        help="Split the input data into the specified replicas.")
+
 
 def create_hparams(flags):
     """Create training hparams."""
@@ -555,6 +566,10 @@ def create_hparams(flags):
         avg_ckpts=flags.avg_ckpts,
         num_intra_threads=flags.num_intra_threads,
         num_inter_threads=flags.num_inter_threads,
+
+        # for data parallelism
+        shuffle_train_data=flags.shuffle_train_data,
+        data_parallelism=flags.data_parallelism,
     )
 
 
