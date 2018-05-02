@@ -104,15 +104,27 @@ class BaseModel(object):
         self.batch_size = tf.size(self.iterator.source_sequence_length)
 
         # Build the train graph.
-        res = self._build(
-            hparams=hparams,
-            source=iterator.source,
-            source_sequence_length=iterator.source_sequence_length,
-            target=iterator.target_input,
-            target_sequence_length=iterator.target_sequence_length,
-            scope=scope)
-        # res = self.__make_parallel(
-        #     self._build, get_available_gpus(), hparams=hparams, scope=scope)
+
+        if hparams.data_parallelism <= 1:
+            res = self._build(
+                hparams=hparams,
+                source=iterator.source,
+                source_sequence_length=iterator.source_sequence_length,
+                target_input=iterator.target_input,
+                target_output=iterator.target_output,
+                target_sequence_length=iterator.target_sequence_length,
+                scope=scope)
+        else:
+            res = self.__make_parallel(
+                self._build,
+                get_available_gpus(),
+                hparams=hparams,
+                scope=scope,
+                source=iterator.source,
+                source_sequence_length=iterator.source_sequence_length,
+                target_input=iterator.target_input,
+                target_output=iterator.target_output,
+                target_sequence_length=iterator.target_sequence_length)
 
         if self.mode == tf.contrib.learn.ModeKeys.TRAIN:
             self.train_loss = res[1]
@@ -192,8 +204,8 @@ class BaseModel(object):
                             (param.name, str(param.get_shape()),
                              param.op.device))
 
-    def _build(self, hparams, source, source_sequence_length, target,
-               target_sequence_length, scope):
+    def _build(self, hparams, source, source_sequence_length, target_input,
+               target_output, target_sequence_length, scope):
         """Build the entire training graph.
         """
         # Embeddings
@@ -212,7 +224,8 @@ class BaseModel(object):
             hparams=hparams,
             source=source,
             source_sequence_length=source_sequence_length,
-            target=target,
+            target_input=target_input,
+            target_output=target_output,
             target_sequence_length=target_sequence_length,
             scope=scope)
 
@@ -306,34 +319,49 @@ class BaseModel(object):
         assert self.mode == tf.contrib.learn.ModeKeys.EVAL
         return sess.run([self.eval_loss, self.predict_count, self.batch_size])
 
-    def __make_parallel(self, fn, num_gpus, **kwargs):
+    def __merge_outputs(self, out_splits):
+        assert len(out_splits), "No output is given."
+
+        split_num = len(out_splits)
+        if split_num == 1: return out_splits[0]
+
+        out = []
+        output_num = len(out_splits[0])
+        for out_i in range(output_num):
+            out_i_splits = [out_splits[i][out_i] for i in range(split_num)]
+            out.append(tf.add_n(out_i_splits))
+        return out
+
+    def __make_parallel(self, fn, gpu_desc, **kwargs):
         """ Wrapper for data parallelism.
         Args:
-          fn:
 
         Returns:
-          The loss.
         """
 
         in_splits = {}
         for k, v in kwargs.items():
-            in_splits[k] = tf.split(v, num_gpus)
+            if isinstance(v, tf.Tensor):
+                in_splits[k] = tf.split(v, len(gpu_desc))
+            else:
+                in_splits[k] = [v] * len(gpu_desc)
 
         out_splits = []
-        for i in range(num_gpus):
-            with tf.device(tf.DeviceSpec(device_type="GPU", device_index=i)):
+        for i, gpu_device in enumerate(gpu_desc):
+            with tf.device(gpu_device):
                 with tf.variable_scope(
                         tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
                     out_i = fn(**{k: v[i] for k, v in in_splits.items()})
-                    out_split.append(out_i)
+                    out_splits.append(out_i)
 
-        return tf.reduce_sum(tf.add_n(out_split)) / tf.to_float(self.batch_size)
+        return self.__merge_outputs(out_splits)
 
     def build_graph(self,
                     hparams,
                     source,
                     source_sequence_length,
-                    target,
+                    target_input,
+                    target_output,
                     target_sequence_length,
                     scope=None):
         """Subclass must implement this method.
@@ -370,14 +398,12 @@ class BaseModel(object):
             ## Decoder
             logits, sample_id, final_context_state = self._build_decoder(
                 encoder_outputs, encoder_state, hparams, source_sequence_length,
-                target, target_sequence_length)
+                target_input, target_sequence_length)
 
             ## Loss
             if self.mode != tf.contrib.learn.ModeKeys.INFER:
-                with tf.device(
-                        model_helper.get_device_str(self.num_encoder_layers - 1,
-                                                    self.num_gpus)):
-                    loss = self._compute_loss(logits)
+                loss = self._compute_loss(logits, target_output,
+                                          target_sequence_length)
             else:
                 loss = None
 
@@ -577,16 +603,15 @@ class BaseModel(object):
         """
         pass
 
-    def _compute_loss(self, logits):
+    def _compute_loss(self, logits, target_output, target_sequence_length):
         """Compute optimization loss."""
-        target_output = self.iterator.target_output
         if self.time_major:
             target_output = tf.transpose(target_output)
         max_time = self.get_max_time(target_output)
         crossent = tf.nn.sparse_softmax_cross_entropy_with_logits(
             labels=target_output, logits=logits)
         target_weights = tf.sequence_mask(
-            self.iterator.target_sequence_length, max_time, dtype=logits.dtype)
+            target_sequence_length, max_time, dtype=logits.dtype)
         if self.time_major:
             target_weights = tf.transpose(target_weights)
 

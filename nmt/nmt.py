@@ -323,9 +323,7 @@ def add_arguments(parser):
         type=str,
         default="",
         choices=["", "bpe", "spm"],
-        help="""\
-                      Set to bpe or spm to activate subword desegmentation.\
-                      """)
+        help="Set to bpe or spm to activate subword desegmentation.")
 
     # Misc
     parser.add_argument(
@@ -338,7 +336,7 @@ def add_arguments(parser):
         type="bool",
         nargs="?",
         const=True,
-        default=False,
+        default=True,
         help="Debug GPU allocation.")
     parser.add_argument(
         "--metrics",

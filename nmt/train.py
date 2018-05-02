@@ -325,8 +325,11 @@ def train(hparams, scope=None, target_session=""):
                              hparams.attention_architecture)
 
     train_model = model_helper.create_train_model(model_creator, hparams, scope)
+    orig_data_parallelism = hparams.data_parallelism
+    hparams.data_parallelism = 1
     eval_model = model_helper.create_eval_model(model_creator, hparams, scope)
     infer_model = model_helper.create_infer_model(model_creator, hparams, scope)
+    hparams.data_parallelism = orig_data_parallelism
 
     # Preload data for sample decoding.
     dev_src_file = "%s.%s" % (hparams.dev_prefix, hparams.src)

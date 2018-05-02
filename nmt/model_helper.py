@@ -1,6 +1,5 @@
 """Utility functions for building models."""
 from __future__ import print_function
-
 import collections
 import six
 import os
@@ -162,6 +161,7 @@ def create_eval_model(model_creator, hparams, scope=None, extra_args=None):
             num_buckets=hparams.num_buckets,
             src_max_len=hparams.src_max_len_infer,
             tgt_max_len=hparams.tgt_max_len_infer)
+
         model = model_creator(
             hparams,
             iterator=iterator,
@@ -207,6 +207,7 @@ def create_infer_model(model_creator, hparams, scope=None, extra_args=None):
             batch_size=batch_size_placeholder,
             eos=hparams.eos,
             src_max_len=hparams.src_max_len_infer)
+
         model = model_creator(
             hparams,
             iterator=iterator,
@@ -441,7 +442,7 @@ def _cell_list(unit_type,
             dropout=dropout,
             mode=mode,
             residual_connection=(i >= num_layers - num_residual_layers),
-            device_str=get_device_str(i + base_gpu, num_gpus),
+            device_str=None,
             residual_fn=residual_fn)
         utils.print_out("")
         cell_list.append(single_cell)
@@ -461,27 +462,27 @@ def create_rnn_cell(unit_type,
                     single_cell_fn=None):
     """Create multi-layer RNN cell.
 
-  Args:
-    unit_type: string representing the unit type, i.e. "lstm".
-    num_units: the depth of each unit.
-    num_layers: number of cells.
-    num_residual_layers: Number of residual layers from top to bottom. For
-      example, if `num_layers=4` and `num_residual_layers=2`, the last 2 RNN
-      cells in the returned list will be wrapped with `ResidualWrapper`.
-    forget_bias: the initial forget bias of the RNNCell(s).
-    dropout: floating point value between 0.0 and 1.0:
-      the probability of dropout.  this is ignored if `mode != TRAIN`.
-    mode: either tf.contrib.learn.TRAIN/EVAL/INFER
-    num_gpus: The number of gpus to use when performing round-robin
-      placement of layers.
-    base_gpu: The gpu device id to use for the first RNN cell in the
-      returned list. The i-th RNN cell will use `(base_gpu + i) % num_gpus`
-      as its device id.
-    single_cell_fn: allow for adding customized cell.
-      When not specified, we default to model_helper._single_cell
-  Returns:
-    An `RNNCell` instance.
-  """
+    Args:
+      unit_type: string representing the unit type, i.e. "lstm".
+      num_units: the depth of each unit.
+      num_layers: number of cells.
+      num_residual_layers: Number of residual layers from top to bottom. For
+        example, if `num_layers=4` and `num_residual_layers=2`, the last 2 RNN
+        cells in the returned list will be wrapped with `ResidualWrapper`.
+      forget_bias: the initial forget bias of the RNNCell(s).
+      dropout: floating point value between 0.0 and 1.0:
+        the probability of dropout.  this is ignored if `mode != TRAIN`.
+      mode: either tf.contrib.learn.TRAIN/EVAL/INFER
+      num_gpus: The number of gpus to use when performing round-robin
+        placement of layers.
+      base_gpu: The gpu device id to use for the first RNN cell in the
+        returned list. The i-th RNN cell will use `(base_gpu + i) % num_gpus`
+        as its device id.
+      single_cell_fn: allow for adding customized cell.
+        When not specified, we default to model_helper._single_cell
+    Returns:
+      An `RNNCell` instance.
+    """
     cell_list = _cell_list(
         unit_type=unit_type,
         num_units=num_units,
