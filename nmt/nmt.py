@@ -336,7 +336,7 @@ def add_arguments(parser):
         type="bool",
         nargs="?",
         const=True,
-        default=True,
+        default=False,
         help="Debug GPU allocation.")
     parser.add_argument(
         "--metrics",

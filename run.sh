@@ -36,5 +36,8 @@ CUDA_VISIBLE_DEVICES=1,2 python -m nmt.nmt \
   --reg_lambda=1.0 \
   --data_parallelism=2 \
   --shuffle_train_data=0 \
+  --batch_size=300 \
+  --num_buckets=1 \
+  --log_devoce_placement=false \
   2>&1 | tee train.log
 

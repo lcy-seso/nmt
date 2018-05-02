@@ -18,7 +18,6 @@ from __future__ import division
 from __future__ import print_function
 
 import abc
-import pdb
 import tensorflow as tf
 
 from tensorflow.python.layers import core as layers_core
@@ -103,8 +102,11 @@ class BaseModel(object):
 
         self.batch_size = tf.size(self.iterator.source_sequence_length)
 
-        # Build the train graph.
+        self.source = self.iterator.source
+        self.target_input = self.iterator.target_input
+        self.target_output = self.iterator.target_output
 
+        # Build the train graph.
         if hparams.data_parallelism <= 1:
             res = self._build(
                 hparams=hparams,
@@ -115,7 +117,7 @@ class BaseModel(object):
                 target_sequence_length=iterator.target_sequence_length,
                 scope=scope)
         else:
-            res = self.__make_parallel(
+            res = self._make_parallel(
                 self._build,
                 get_available_gpus(),
                 hparams=hparams,
@@ -127,7 +129,7 @@ class BaseModel(object):
                 target_sequence_length=iterator.target_sequence_length)
 
         if self.mode == tf.contrib.learn.ModeKeys.TRAIN:
-            self.train_loss = res[1]
+            self.train_loss = res[1] / tf.to_float(self.batch_size)
             self.word_count = tf.reduce_sum(
                 self.iterator.source_sequence_length) + tf.reduce_sum(
                     self.iterator.target_sequence_length)
@@ -309,6 +311,7 @@ class BaseModel(object):
 
     def train(self, sess):
         assert self.mode == tf.contrib.learn.ModeKeys.TRAIN
+
         return sess.run([
             self.update, self.train_loss, self.predict_count,
             self.train_summary, self.global_step, self.word_count,
@@ -319,7 +322,7 @@ class BaseModel(object):
         assert self.mode == tf.contrib.learn.ModeKeys.EVAL
         return sess.run([self.eval_loss, self.predict_count, self.batch_size])
 
-    def __merge_outputs(self, out_splits):
+    def _merge_outputs(self, out_splits):
         assert len(out_splits), "No output is given."
 
         split_num = len(out_splits)
@@ -332,11 +335,8 @@ class BaseModel(object):
             out.append(tf.add_n(out_i_splits))
         return out
 
-    def __make_parallel(self, fn, gpu_desc, **kwargs):
+    def _make_parallel(self, fn, gpu_desc, **kwargs):
         """ Wrapper for data parallelism.
-        Args:
-
-        Returns:
         """
 
         in_splits = {}
@@ -346,15 +346,24 @@ class BaseModel(object):
             else:
                 in_splits[k] = [v] * len(gpu_desc)
 
+        # FIXME(caoying) Temprorarily hard-code this for quick experiments.
+        # Need an elegant implementation.
+        target_output_splits = in_splits["target_output"]
+        in_splits["target_output"] = []
+        for i in range(len(gpu_desc)):
+            size = [-1, tf.reduce_max(in_splits["target_sequence_length"][i])]
+            in_splits["target_output"].append(
+                tf.slice(target_output_splits[i], [0, 0], size))
+
         out_splits = []
-        for i, gpu_device in enumerate(gpu_desc):
-            with tf.device(gpu_device):
+        for i, device in enumerate(gpu_desc):
+            with tf.device(device):
                 with tf.variable_scope(
                         tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
                     out_i = fn(**{k: v[i] for k, v in in_splits.items()})
                     out_splits.append(out_i)
 
-        return self.__merge_outputs(out_splits)
+        return self._merge_outputs(out_splits)
 
     def build_graph(self,
                     hparams,
@@ -607,6 +616,7 @@ class BaseModel(object):
         """Compute optimization loss."""
         if self.time_major:
             target_output = tf.transpose(target_output)
+
         max_time = self.get_max_time(target_output)
         crossent = tf.nn.sparse_softmax_cross_entropy_with_logits(
             labels=target_output, logits=logits)
@@ -614,10 +624,7 @@ class BaseModel(object):
             target_sequence_length, max_time, dtype=logits.dtype)
         if self.time_major:
             target_weights = tf.transpose(target_weights)
-
-        loss = tf.reduce_sum(crossent * target_weights) / tf.to_float(
-            self.batch_size)
-        return loss
+        return tf.reduce_sum(crossent * target_weights)
 
     def _get_infer_summary(self, hparams):
         return tf.no_op()

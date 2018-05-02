@@ -14,7 +14,7 @@
 # ==============================================================================
 """For training NMT models."""
 from __future__ import print_function
-
+import pdb
 import math
 import os
 import random
@@ -292,6 +292,7 @@ def before_train(loaded_train_model, train_model, train_sess, global_step,
     # Initialize all of the iterators
     skip_count = hparams.batch_size * hparams.epoch_step
     utils.print_out("# Init train iterator, skipping %d elements" % skip_count)
+
     train_sess.run(
         train_model.iterator.initializer,
         feed_dict={train_model.skip_count_placeholder: skip_count})
@@ -351,6 +352,7 @@ def train(hparams, scope=None, target_session=""):
         log_device_placement=log_device_placement,
         num_intra_threads=hparams.num_intra_threads,
         num_inter_threads=hparams.num_inter_threads)
+
     train_sess = tf.Session(
         target=target_session, config=config_proto, graph=train_model.graph)
     # eval_sess = tf.Session(
@@ -385,20 +387,22 @@ def train(hparams, scope=None, target_session=""):
         try:
             step_result = loaded_train_model.train(train_sess)
             hparams.epoch_step += 1
+
         except tf.errors.OutOfRangeError:
             # Finished going through the training dataset.  Go to next epoch.
             hparams.epoch_step = 0
             utils.print_out(
                 "# Finished an epoch, step %d. Perform external evaluation" %
                 global_step)
-            run_sample_decode(infer_model, infer_sess, model_dir, hparams,
-                              summary_writer, sample_src_data, sample_tgt_data)
-            run_external_eval(infer_model, infer_sess, model_dir, hparams,
-                              summary_writer)
 
-            if avg_ckpts:
-                run_avg_external_eval(infer_model, infer_sess, model_dir,
-                                      hparams, summary_writer, global_step)
+            # run_sample_decode(infer_model, infer_sess, model_dir, hparams,
+            #                   summary_writer, sample_src_data, sample_tgt_data)
+            # run_external_eval(infer_model, infer_sess, model_dir, hparams,
+            #                   summary_writer)
+
+            # if avg_ckpts:
+            #     run_avg_external_eval(infer_model, infer_sess, model_dir,
+            #                           hparams, summary_writer, global_step)
 
             train_sess.run(
                 train_model.iterator.initializer,
@@ -423,23 +427,23 @@ def train(hparams, scope=None, target_session=""):
             # Reset statistics
             stats = init_stats()
 
-        if global_step - last_eval_step >= steps_per_eval:
-            last_eval_step = global_step
-            utils.print_out("# Save eval, global step %d" % global_step)
-            utils.add_summary(summary_writer, global_step, "train_ppl",
-                              info["train_ppl"])
+        # if global_step - last_eval_step >= steps_per_eval:
+        #     last_eval_step = global_step
+        #     utils.print_out("# Save eval, global step %d" % global_step)
+        #     utils.add_summary(summary_writer, global_step, "train_ppl",
+        #                       info["train_ppl"])
 
-            # Save checkpoint
-            loaded_train_model.saver.save(
-                train_sess,
-                os.path.join(out_dir, "translate.ckpt"),
-                global_step=global_step)
+        #     # Save checkpoint
+        #     loaded_train_model.saver.save(
+        #         train_sess,
+        #         os.path.join(out_dir, "translate.ckpt"),
+        #         global_step=global_step)
 
-            # Evaluate on dev/test
-            # run_sample_decode(infer_model, infer_sess, model_dir, hparams,
-            #                   summary_writer, sample_src_data, sample_tgt_data)
-            # run_internal_eval(eval_model, eval_sess, model_dir, hparams,
-            #                   summary_writer)
+        #     # Evaluate on dev/test
+        #     run_sample_decode(infer_model, infer_sess, model_dir, hparams,
+        #                       summary_writer, sample_src_data, sample_tgt_data)
+        #     run_internal_eval(eval_model, eval_sess, model_dir, hparams,
+        #                       summary_writer)
 
         if global_step - last_external_eval_step >= steps_per_external_eval:
             last_external_eval_step = global_step
