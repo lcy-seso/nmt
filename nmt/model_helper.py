@@ -106,7 +106,7 @@ def create_train_model(model_creator,
             skip_count=skip_count_placeholder,
             num_shards=num_workers,
             shard_index=jobid,
-            shuffle_train_data=hparams.shuffle_train_data)
+            disable_data_shuffle=hparams.disable_data_shuffle)
 
         # Note: One can set model_device_fn to
         # `tf.train.replica_device_setter(ps_tasks)` for distributed training.

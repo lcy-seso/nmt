@@ -14,6 +14,7 @@
 # ==============================================================================
 """TensorFlow NMT model implementation."""
 from __future__ import print_function
+import pdb
 import argparse
 import os
 import random
@@ -217,9 +218,7 @@ def add_arguments(parser):
         "--vocab_prefix",
         type=str,
         default=None,
-        help="""\
-      Vocab prefix, expect files with src/tgt suffixes.\
-      """)
+        help="Vocab prefix, expect files with src/tgt suffixes.")
     parser.add_argument(
         "--embed_prefix",
         type=str,
@@ -246,10 +245,8 @@ def add_arguments(parser):
         "--check_special_token",
         type="bool",
         default=True,
-        help="""\
-                      Whether check special sos, eos, unk tokens exist in the
-                      vocab files.\
-                      """)
+        help=("Whether check special sos, eos, unk tokens exist "
+              "in the vocab files."))
 
     # Sequence lengths
     parser.add_argument(
@@ -383,10 +380,8 @@ def add_arguments(parser):
         nargs="?",
         const=True,
         default=False,
-        help=("""\
-                      Average the last N checkpoints for external evaluation.
-                      N can be controlled by setting --num_keep_ckpts.\
-                      """))
+        help=(("Average the last N checkpoints for external evaluation. "
+               "N can be controlled by setting --num_keep_ckpts.")))
 
     # Inference
     parser.add_argument(
@@ -471,17 +466,39 @@ def add_arguments(parser):
         default=0,
         help="number of intra_op_parallelism_threads")
 
+    # For profile.
     parser.add_argument(
-        "--shuffle_train_data",
-        type=int,
-        default=1,
-        help="Whether to shuffle the training data. This flag is for debug.")
-
+        "--train_task_only",
+        type=bool,
+        default=False,
+        help=("Disable evaluation during training."
+              "This is only used for profiling and debug purpose. "
+              "Do not set it in normal training."))
+    parser.add_argument(
+        "--disable_data_shuffle",
+        type=bool,
+        default=False,
+        help=("Whether to shuffle the training data. This flag is only "
+              "useful for debug. Do not set it in normal training."))
     parser.add_argument(
         "--data_parallelism",
         type=int,
         default=1,
         help="Split the input data into the specified replicas.")
+    parser.add_argument(
+        "--use_timeline_profiler",
+        type=bool,
+        default=False,
+        help=("Open the profiling tool: TensorFlow Timeline. "
+              "This will slightly slow down the training execution. "
+              "Do not use it except for the profiling purpose."))
+    parser.add_argument(
+        "--profiling_save_path",
+        type=str,
+        default="timeline_output.json",
+        help=("The path to save the TensorFlow timeline results. "
+              "This parameter is ignored if use_timeline_profiler "
+              "is set to False."))
 
 
 def create_hparams(flags):
@@ -565,9 +582,12 @@ def create_hparams(flags):
         num_intra_threads=flags.num_intra_threads,
         num_inter_threads=flags.num_inter_threads,
 
-        # for data parallelism
-        shuffle_train_data=flags.shuffle_train_data,
+        # for data parallelism and profiling.
+        train_task_only=flags.train_task_only,
+        disable_data_shuffle=flags.disable_data_shuffle,
         data_parallelism=flags.data_parallelism,
+        use_timeline_profiler=flags.use_timeline_profiler,
+        profiling_save_path=flags.profiling_save_path,
     )
 
 

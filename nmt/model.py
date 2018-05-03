@@ -309,14 +309,23 @@ class BaseModel(object):
                 scope=scope,
             ))
 
-    def train(self, sess):
+    def train(self, sess, options=None, run_metadata=None):
         assert self.mode == tf.contrib.learn.ModeKeys.TRAIN
 
-        return sess.run([
-            self.update, self.train_loss, self.predict_count,
-            self.train_summary, self.global_step, self.word_count,
-            self.batch_size, self.grad_norm, self.learning_rate
-        ])
+        return sess.run(
+            [
+                self.update,
+                self.train_loss,
+                self.predict_count,
+                self.train_summary,
+                self.global_step,
+                self.word_count,
+                self.batch_size,
+                self.grad_norm,
+                self.learning_rate,
+            ],
+            options=options,
+            run_metadata=run_metadata)
 
     def eval(self, sess):
         assert self.mode == tf.contrib.learn.ModeKeys.EVAL
