@@ -15,6 +15,7 @@
 """For loading data into NMT models."""
 from __future__ import print_function
 
+import pdb
 import collections
 
 import tensorflow as tf
@@ -92,7 +93,7 @@ def get_iterator(src_dataset,
                  num_shards=1,
                  shard_index=0,
                  reshuffle_each_iteration=True,
-                 shuffle_train_data=True):
+                 disable_data_shuffle=False):
     if not output_buffer_size:
         output_buffer_size = batch_size * 1000
     src_eos_id = tf.cast(src_vocab_table.lookup(tf.constant(eos)), tf.int32)
@@ -105,7 +106,7 @@ def get_iterator(src_dataset,
     if skip_count is not None:
         src_tgt_dataset = src_tgt_dataset.skip(skip_count)
 
-    if shuffle_train_data:
+    if not disable_data_shuffle:
         src_tgt_dataset = src_tgt_dataset.shuffle(
             output_buffer_size, random_seed, reshuffle_each_iteration)
 
