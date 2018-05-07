@@ -469,14 +469,14 @@ def add_arguments(parser):
     # For profile.
     parser.add_argument(
         "--train_task_only",
-        type=bool,
+        type="bool",
         default=False,
         help=("Disable evaluation during training."
               "This is only used for profiling and debug purpose. "
               "Do not set it in normal training."))
     parser.add_argument(
         "--disable_data_shuffle",
-        type=bool,
+        type="bool",
         default=False,
         help=("Whether to shuffle the training data. This flag is only "
               "useful for debug. Do not set it in normal training."))
@@ -487,7 +487,7 @@ def add_arguments(parser):
         help="Split the input data into the specified replicas.")
     parser.add_argument(
         "--use_timeline_profiler",
-        type=bool,
+        type="bool",
         default=False,
         help=("Open the profiling tool: TensorFlow Timeline. "
               "This will slightly slow down the training execution. "
