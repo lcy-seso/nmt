@@ -20,7 +20,7 @@
 ## Test Settings
 
 - Test Eviornment:
-  - TensorFlow r1.5 compiled by GCC 4.9, CUDA 8.0, cudnn 5.1, no NCCL support.
+  - **TensorFlow r1.5 compiled by GCC 4.9, CUDA 8.0, cudnn 5.1, no NCCL support**.
   - GTX Titan, 3 cards on one machine.
 
 - Topology of the test model:
@@ -83,3 +83,37 @@
     - After `/gpu:1` finished computations, it will wait for `/gpu:0` to finish the computation and then merge the gradients and calculate the parameter updates.
 
     > **BUT further balancing the workload on each GPU card by sorting the input data by their lengths more strictly breaks the randomness for SGD updates, it may potentially harm the learning performance according to my previous test.**
+
+---
+
+## Updates for TensorFlow r1.8 with CUDA 9, cudnn 7.1, nccl 2.1
+
+1. bucket number = 1
+
+    |Number of GPU cards|Total batch size|Total time to run 50 mini-batch(s)|
+    |--|--|--|
+    |1|100|39.34844|
+    |2|100 * 2|53.23836|
+    |3|100 * 3|67.88652|
+
+    |Number of GPU cards|Total batch size|Total time to run 50 mini-batch(s)|
+    |--|--|--|
+    |1|200| 58.30827|
+    |2|200 * 2|76.00668|
+    |3|200 * 3|94.61627|
+
+1. bucket number = 5
+
+    |Number of GPU cards|Total batch size|Total time to run 50 mini-batch(s)|
+    |--|--|--|
+    |1|100|23.28938|
+    |2|100 * 2|32.67446|
+    |3|100 * 3|43.62821|
+
+    |Number of GPU cards|Total batch size|Total time to run 50 mini-batch(s)|
+    |--|--|--|
+    |1|200|34.26695|
+    |2|200 * 2|45.80076|
+    |3|200 * 3|57.16515|
+
+**The results for multiple GPU cards become worse compared to previous evaluation with r1.5. What happended, and why?** It seems that the more GPU cards are used, the more accerleration drops.
